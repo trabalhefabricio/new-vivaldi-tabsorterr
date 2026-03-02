@@ -70,7 +70,13 @@ class TabSorter {
     this.lastReqTime   = 0;
     this.reqCount      = 0;
 
-    this._init();
+    this._init().catch(e => {
+      console.error('TabSorter init failed:', e);
+      try {
+        const el = document.getElementById('status');
+        if (el) { el.textContent = 'Initialisation error – please reload.'; el.className = 'visible error'; }
+      } catch { /* DOM not ready */ }
+    });
   }
 
   // ── Initialisation ───────────────────────────────────────────────────────
@@ -979,7 +985,26 @@ fi
 
   async _getAllTabs() {
     const tabs = await chrome.tabs.query({});
-    return tabs.map(t => ({ id: t.id, title: t.title || '', url: t.url || '', windowId: t.windowId, index: t.index }));
+    return tabs.map(t => {
+      // For hibernated / discarded tabs the url or title may be empty even
+      // though the browser still shows them on hover (session-stored data).
+      // Use pendingUrl as first fallback, then try to derive a useful
+      // domain hint from the favIconUrl.
+      let url   = t.url || t.pendingUrl || '';
+      let title = t.title || '';
+
+      // Strip internal new-tab / blank URLs – they carry no signal
+      if (/^(chrome|vivaldi|edge|about):/.test(url) && !title) {
+        url = '';
+      }
+
+      // Last-resort: extract domain from favicon URL
+      if (!url && !title && t.favIconUrl) {
+        try { title = '(favicon: ' + new URL(t.favIconUrl).hostname + ')'; } catch { /* ignore */ }
+      }
+
+      return { id: t.id, title, url, windowId: t.windowId, index: t.index };
+    });
   }
 
   _dedup(tabs) {
@@ -987,6 +1012,9 @@ fi
     const unique = [];
     const dupeIds = [];
     for (const t of tabs) {
+      // Never treat blank / empty URLs as duplicates of each other –
+      // hibernated tabs may all have url === '' and would be mass-closed.
+      if (!t.url || t.url === 'about:blank') { unique.push(t); continue; }
       if (seen.has(t.url)) { dupeIds.push(t.id); }
       else { seen.add(t.url); unique.push(t); }
     }
@@ -1060,7 +1088,9 @@ fi
     for (const c of this.categories) result[c] = [];
     result['Uncategorized'] = [];
 
-    const lookup = new Map(valid.map(i => [i.id, i.category]));
+    // Coerce IDs to Number so AI responses with string IDs ("123")
+    // still match the numeric tab IDs from chrome.tabs.query().
+    const lookup = new Map(valid.map(i => [Number(i.id), i.category]));
     for (const t of origTabs) {
       const cat = lookup.get(t.id);
       (cat && result[cat] ? result[cat] : result['Uncategorized']).push(t);

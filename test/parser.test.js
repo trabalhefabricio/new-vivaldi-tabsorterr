@@ -78,7 +78,9 @@ function parseResponse(text, origTabs, categories) {
   for (const c of categories) result[c] = [];
   result['Uncategorized'] = [];
 
-  const lookup = new Map(valid.map(i => [i.id, i.category]));
+  // Coerce IDs to Number so AI responses with string IDs ("123")
+  // still match the numeric tab IDs from chrome.tabs.query().
+  const lookup = new Map(valid.map(i => [Number(i.id), i.category]));
   for (const t of origTabs) {
     const cat = lookup.get(t.id);
     (cat && result[cat] ? result[cat] : result['Uncategorized']).push(t);
@@ -316,6 +318,27 @@ assertThrows(
   'Invalid JSON',
   'throws when no complete objects can be recovered'
 );
+
+console.log('\n  ─ AI returns string IDs instead of numbers');
+{
+  // AI models sometimes return "1" instead of 1 – the Map lookup must still work
+  const input = '[{"id":"1","category":"Dev"},{"id":"2","category":"Email"},{"id":"3","category":"Media"}]';
+  const result = parseResponse(input, sampleTabs, sampleCategories);
+  assertEqual(result['Dev'].length, 1, 'Dev matched despite string ID');
+  assertEqual(result['Dev'][0].id, 1, 'correct tab matched for Dev');
+  assertEqual(result['Email'].length, 1, 'Email matched despite string ID');
+  assertEqual(result['Media'].length, 1, 'Media matched despite string ID');
+  assertEqual(result['Uncategorized'].length, 0, 'no uncategorized when IDs coerced');
+}
+
+console.log('\n  ─ mixed numeric and string IDs');
+{
+  const input = '[{"id":1,"category":"Dev"},{"id":"2","category":"Email"},{"id":3,"category":"Media"}]';
+  const result = parseResponse(input, sampleTabs, sampleCategories);
+  assertEqual(result['Dev'].length, 1, 'numeric ID matched');
+  assertEqual(result['Email'].length, 1, 'string ID matched');
+  assertEqual(result['Media'].length, 1, 'numeric ID matched (tab 3)');
+}
 
 // ── Tests: buildPrompt ──────────────────────────────────────────────────────
 
