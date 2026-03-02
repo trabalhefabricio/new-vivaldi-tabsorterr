@@ -4,6 +4,7 @@
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'];
+const BLANK_TAB_URLS = new Set(['', 'chrome://newtab/', 'about:blank', 'vivaldi://newtab/']);
 const RPM_INTERVAL_MS = 4000; // 15 RPM → one request every 4 s
 const DAILY_LIMIT = 1400;     // stay under Google's 1 500/day free‑tier cap
 const CHUNK_THRESHOLD = 100;  // call AI once if tab count ≤ this
@@ -1559,7 +1560,8 @@ fi
       } catch (e) {
         console.warn(`Bulk move failed for "${cat}", trying per-tab:`, e);
         for (const id of validIds) {
-          try { await chrome.tabs.move(id, { windowId: win.id, index: -1 }); movedCount++; } catch {}
+          try { await chrome.tabs.move(id, { windowId: win.id, index: -1 }); movedCount++; }
+          catch (e2) { console.warn(`Per-tab move failed for tab ${id}:`, e2); }
         }
       }
 
@@ -1572,10 +1574,7 @@ fi
 
       // Remove the blank tab that chrome.windows.create() opened
       const winTabs = await chrome.tabs.query({ windowId: win.id });
-      const blankTab = winTabs.find(t =>
-        !t.url || t.url === '' || t.url === 'chrome://newtab/'
-        || t.url === 'about:blank' || t.url === 'vivaldi://newtab/'
-      );
+      const blankTab = winTabs.find(t => !t.url || BLANK_TAB_URLS.has(t.url));
       if (blankTab && winTabs.length > 1) {
         try { await chrome.tabs.remove(blankTab.id); } catch {}
       }
