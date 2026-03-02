@@ -4,6 +4,7 @@
 
 const GEMINI_API_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const GROUP_COLORS = ['grey', 'blue', 'red', 'yellow', 'green', 'pink', 'purple', 'cyan'];
+const BLANK_TAB_URLS = new Set(['', 'chrome://newtab/', 'about:blank', 'vivaldi://newtab/']);
 const RPM_INTERVAL_MS = 4000; // 15 RPM → one request every 4 s
 const DAILY_LIMIT = 1400;     // stay under Google's 1 500/day free‑tier cap
 const CHUNK_THRESHOLD = 100;  // call AI once if tab count ≤ this
@@ -66,6 +67,7 @@ class TabSorter {
 
     this.analyzedTabs  = null;
     this.allTabs       = [];
+    this.isApplying    = false;
 
     this.lastReqTime   = 0;
     this.reqCount      = 0;
@@ -263,7 +265,7 @@ class TabSorter {
         if (wsScope) wsScope.style.display = this.mode === 'workspaces' ? '' : 'none';
         this._updateWorkspaceSetup();
         this._save();
-        if (this.analyzedTabs) {
+        if (this.analyzedTabs && !this.isApplying) {
           $('applyBtn').disabled = false;
           this._status('Mode changed – click Apply to re-apply with existing analysis.', 'info');
         }
@@ -1417,6 +1419,7 @@ fi
 
   async _apply() {
     if (!this.analyzedTabs) { this._status('Run analysis first.', 'error'); return; }
+    this.isApplying = true;
     try {
       $('applyBtn').disabled = true;
       this._status('Applying…', 'info');
@@ -1426,7 +1429,7 @@ fi
       let warnings = 0;
       if (this.mode === 'workspaces') await this._applyWorkspaces();
       else if (this.mode === 'stacks') warnings = (await this._applyStacks()) || 0;
-      else await this._applyWindows();
+      else warnings = (await this._applyWindows()) || 0;
 
       if (warnings > 0) {
         this._status(`✅ Tabs grouped, but ${warnings} group(s) could not be named/colored. You can switch mode and re-apply.`, 'success');
@@ -1439,6 +1442,8 @@ fi
       console.error('apply:', e);
       this._status(sanitizeErrorMessage(e.message), 'error');
       $('applyBtn').disabled = false;
+    } finally {
+      this.isApplying = false;
     }
   }
 
@@ -1521,6 +1526,7 @@ fi
         ci++;
       } catch (e) {
         console.warn(`Failed to create tab group for "${cat}":`, e);
+        updateWarnings++;
       }
     }
     await chrome.windows.update(targetWin, { focused: true });
@@ -1531,15 +1537,13 @@ fi
 
   async _applyWindows() {
     let ci = 0;
+    let updateWarnings = 0;
     for (const [cat, tabs] of Object.entries(this.analyzedTabs)) {
       if (!tabs.length) continue;
       if (cat === 'Uncategorized' && !this.includeUncategorized) continue;
 
-      // Verify tabs still exist before creating a window
-      const validIds = [];
-      for (const t of tabs) {
-        try { await chrome.tabs.get(t.id); validIds.push(t.id); } catch {}
-      }
+      // Tab existence already verified by _refreshAnalyzedTabs()
+      const validIds = tabs.map(t => t.id);
       if (!validIds.length) continue;
 
       // Create a new window, then move all tabs into it.
@@ -1547,18 +1551,30 @@ fi
       // source window, the source window closes unexpectedly.
       const win = await chrome.windows.create({ focused: false });
 
+      // Try bulk move first; fall back to per-tab move so one stale/pinned
+      // tab doesn't prevent the entire category from being organised.
+      let movedCount = 0;
       try {
         await chrome.tabs.move(validIds, { windowId: win.id, index: -1 });
+        movedCount = validIds.length;
       } catch (e) {
-        console.error('Window mode tab move:', e);
-        // Some tabs may have been closed – skip gracefully
+        console.warn(`Bulk move failed for "${cat}", trying per-tab:`, e);
+        for (const id of validIds) {
+          try { await chrome.tabs.move(id, { windowId: win.id, index: -1 }); movedCount++; }
+          catch (e2) { console.warn(`Per-tab move failed for tab ${id}:`, e2); }
+        }
+      }
+
+      // If no tabs were moved, clean up the empty window
+      if (movedCount === 0) {
+        try { await chrome.windows.remove(win.id); } catch {}
+        updateWarnings++;
+        continue;
       }
 
       // Remove the blank tab that chrome.windows.create() opened
       const winTabs = await chrome.tabs.query({ windowId: win.id });
-      const blankTab = winTabs.find(t =>
-        !t.url || t.url === '' || t.url === 'chrome://newtab/' || t.url === 'about:blank'
-      );
+      const blankTab = winTabs.find(t => !t.url || BLANK_TAB_URLS.has(t.url));
       if (blankTab && winTabs.length > 1) {
         try { await chrome.tabs.remove(blankTab.id); } catch {}
       }
@@ -1573,10 +1589,14 @@ fi
             color: GROUP_COLORS[ci % GROUP_COLORS.length],
             collapsed: false,
           });
-        } catch {}
+        } catch (e) {
+          console.warn(`Failed to group/name tabs for "${cat}":`, e);
+          updateWarnings++;
+        }
       }
       ci++;
     }
+    return updateWarnings;
   }
 }
 
