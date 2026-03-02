@@ -263,6 +263,10 @@ class TabSorter {
         if (wsScope) wsScope.style.display = this.mode === 'workspaces' ? '' : 'none';
         this._updateWorkspaceSetup();
         this._save();
+        if (this.analyzedTabs) {
+          $('applyBtn').disabled = false;
+          this._status('Mode changed – click Apply to re-apply with existing analysis.', 'info');
+        }
       });
     });
     $('stackOptionsSection').style.display = this.mode === 'stacks' ? '' : 'none';
@@ -1393,17 +1397,43 @@ fi
 
   // ── Apply Flow ───────────────────────────────────────────────────────────
 
+  /** Refresh tab metadata (windowId, index) while preserving category assignments.
+   *  Needed when re-applying after a previous apply moved tabs around. */
+  async _refreshAnalyzedTabs() {
+    if (!this.analyzedTabs) return;
+    const allTabs = await chrome.tabs.query({});
+    const tabMap = new Map(allTabs.map(t => [t.id, t]));
+    const refreshed = {};
+    for (const cat of Object.keys(this.analyzedTabs)) {
+      refreshed[cat] = this.analyzedTabs[cat]
+        .filter(t => tabMap.has(t.id))
+        .map(t => {
+          const fresh = tabMap.get(t.id);
+          return { ...t, windowId: fresh.windowId, index: fresh.index };
+        });
+    }
+    this.analyzedTabs = refreshed;
+  }
+
   async _apply() {
     if (!this.analyzedTabs) { this._status('Run analysis first.', 'error'); return; }
     try {
       $('applyBtn').disabled = true;
       this._status('Applying…', 'info');
 
+      await this._refreshAnalyzedTabs();
+
+      let warnings = 0;
       if (this.mode === 'workspaces') await this._applyWorkspaces();
-      else if (this.mode === 'stacks') await this._applyStacks();
+      else if (this.mode === 'stacks') warnings = (await this._applyStacks()) || 0;
       else await this._applyWindows();
 
-      this._status('✅ Tabs sorted!', 'success');
+      if (warnings > 0) {
+        this._status(`✅ Tabs grouped, but ${warnings} group(s) could not be named/colored. You can switch mode and re-apply.`, 'success');
+      } else {
+        this._status('✅ Tabs sorted! You can switch mode and re-apply.', 'success');
+      }
+      $('applyBtn').disabled = false;
       if (this.autoClose) setTimeout(() => window.close(), 2000);
     } catch (e) {
       console.error('apply:', e);
@@ -1467,23 +1497,34 @@ fi
     if (!groups.length) throw new Error('No tabs to organise in selected scope.');
 
     let ci = 0;
+    let updateWarnings = 0;
     for (const { cat, tabs } of groups) {
-      // Verify tabs still exist
-      const ids = [];
-      for (const t of tabs) {
-        try { await chrome.tabs.get(t.id); ids.push(t.id); } catch {}
-      }
-      if (!ids.length) continue;
+      try {
+        // Verify tabs still exist
+        const ids = [];
+        for (const t of tabs) {
+          try { await chrome.tabs.get(t.id); ids.push(t.id); } catch {}
+        }
+        if (!ids.length) continue;
 
-      const gid = await chrome.tabs.group({ tabIds: ids });
-      await chrome.tabGroups.update(gid, {
-        title: cat,
-        color: GROUP_COLORS[ci % GROUP_COLORS.length],
-        collapsed: false,
-      });
-      ci++;
+        const gid = await chrome.tabs.group({ tabIds: ids });
+        try {
+          await chrome.tabGroups.update(gid, {
+            title: cat,
+            color: GROUP_COLORS[ci % GROUP_COLORS.length],
+            collapsed: false,
+          });
+        } catch (e) {
+          console.warn(`tabGroups.update failed for "${cat}":`, e);
+          updateWarnings++;
+        }
+        ci++;
+      } catch (e) {
+        console.warn(`Failed to create tab group for "${cat}":`, e);
+      }
     }
     await chrome.windows.update(targetWin, { focused: true });
+    return updateWarnings;
   }
 
   // ── Window Mode ──────────────────────────────────────────────────────────
@@ -1494,13 +1535,20 @@ fi
       if (!tabs.length) continue;
       if (cat === 'Uncategorized' && !this.includeUncategorized) continue;
 
+      // Verify tabs still exist before creating a window
+      const validIds = [];
+      for (const t of tabs) {
+        try { await chrome.tabs.get(t.id); validIds.push(t.id); } catch {}
+      }
+      if (!validIds.length) continue;
+
       // Create a new window, then move all tabs into it.
       // Avoid using tabId in create() — if that tab is the last in its
       // source window, the source window closes unexpectedly.
       const win = await chrome.windows.create({ focused: false });
 
       try {
-        await chrome.tabs.move(tabs.map(t => t.id), { windowId: win.id, index: -1 });
+        await chrome.tabs.move(validIds, { windowId: win.id, index: -1 });
       } catch (e) {
         console.error('Window mode tab move:', e);
         // Some tabs may have been closed – skip gracefully

@@ -493,6 +493,109 @@ console.log('\n📋 Bridge Code Preservation');
   assert(bridgeCode.includes("=== 'undefined'"), 'unescaped code preserves quotes for heredoc');
 }
 
+// ── Tests: refreshAnalyzedTabs (pure logic) ─────────────────────────────────
+
+console.log('\n📋 refreshAnalyzedTabs');
+
+// Pure-function version of the refresh logic used in _refreshAnalyzedTabs()
+function refreshAnalyzedTabs(analyzedTabs, currentBrowserTabs) {
+  const tabMap = new Map(currentBrowserTabs.map(t => [t.id, t]));
+  const result = {};
+  for (const cat of Object.keys(analyzedTabs)) {
+    result[cat] = analyzedTabs[cat]
+      .filter(t => tabMap.has(t.id))
+      .map(t => {
+        const fresh = tabMap.get(t.id);
+        return { ...t, windowId: fresh.windowId, index: fresh.index };
+      });
+  }
+  return result;
+}
+
+console.log('\n  ─ updates windowId and index from fresh tab data');
+{
+  const analyzed = {
+    'Dev': [{ id: 1, title: 'GitHub', url: 'https://github.com', windowId: 100, index: 0 }],
+    'Email': [{ id: 2, title: 'Gmail', url: 'https://mail.google.com', windowId: 100, index: 1 }],
+  };
+  const fresh = [
+    { id: 1, windowId: 200, index: 3 },
+    { id: 2, windowId: 200, index: 4 },
+  ];
+  const result = refreshAnalyzedTabs(analyzed, fresh);
+  assertEqual(result['Dev'][0].windowId, 200, 'windowId updated for Dev tab');
+  assertEqual(result['Dev'][0].index, 3, 'index updated for Dev tab');
+  assertEqual(result['Email'][0].windowId, 200, 'windowId updated for Email tab');
+  assertEqual(result['Email'][0].index, 4, 'index updated for Email tab');
+}
+
+console.log('\n  ─ preserves title and url from original analysis');
+{
+  const analyzed = {
+    'Dev': [{ id: 1, title: 'GitHub', url: 'https://github.com', windowId: 100, index: 0 }],
+  };
+  const fresh = [{ id: 1, windowId: 200, index: 5 }];
+  const result = refreshAnalyzedTabs(analyzed, fresh);
+  assertEqual(result['Dev'][0].title, 'GitHub', 'title preserved');
+  assertEqual(result['Dev'][0].url, 'https://github.com', 'url preserved');
+}
+
+console.log('\n  ─ removes tabs that no longer exist');
+{
+  const analyzed = {
+    'Dev': [
+      { id: 1, title: 'GitHub', url: 'https://github.com', windowId: 100, index: 0 },
+      { id: 99, title: 'Closed', url: 'https://closed.com', windowId: 100, index: 2 },
+    ],
+    'Email': [{ id: 2, title: 'Gmail', url: 'https://mail.google.com', windowId: 100, index: 1 }],
+  };
+  const fresh = [
+    { id: 1, windowId: 100, index: 0 },
+    { id: 2, windowId: 100, index: 1 },
+  ];
+  const result = refreshAnalyzedTabs(analyzed, fresh);
+  assertEqual(result['Dev'].length, 1, 'closed tab removed from Dev');
+  assertEqual(result['Dev'][0].id, 1, 'surviving tab kept in Dev');
+  assertEqual(result['Email'].length, 1, 'Email unchanged');
+}
+
+console.log('\n  ─ handles empty categories after refresh');
+{
+  const analyzed = {
+    'Dev': [{ id: 99, title: 'Closed', url: 'https://closed.com', windowId: 100, index: 0 }],
+    'Email': [{ id: 2, title: 'Gmail', url: 'https://mail.google.com', windowId: 100, index: 1 }],
+  };
+  const fresh = [{ id: 2, windowId: 100, index: 1 }];
+  const result = refreshAnalyzedTabs(analyzed, fresh);
+  assertEqual(result['Dev'].length, 0, 'Dev is empty after all tabs closed');
+  assertEqual(result['Email'].length, 1, 'Email still has its tab');
+}
+
+console.log('\n  ─ preserves category assignments across mode switches');
+{
+  const analyzed = {
+    'Work': [
+      { id: 1, title: 'GitHub', url: 'https://github.com', windowId: 100, index: 0 },
+      { id: 3, title: 'Jira', url: 'https://jira.com', windowId: 100, index: 2 },
+    ],
+    'Social': [{ id: 2, title: 'Twitter', url: 'https://twitter.com', windowId: 100, index: 1 }],
+    'Uncategorized': [],
+  };
+  // After applying stacks mode, tabs moved to different positions
+  const fresh = [
+    { id: 1, windowId: 100, index: 0 },
+    { id: 2, windowId: 100, index: 1 },
+    { id: 3, windowId: 100, index: 2 },
+  ];
+  const result = refreshAnalyzedTabs(analyzed, fresh);
+  assertEqual(result['Work'].length, 2, 'Work still has 2 tabs');
+  assertEqual(result['Social'].length, 1, 'Social still has 1 tab');
+  assertEqual(result['Uncategorized'].length, 0, 'Uncategorized still empty');
+  assertEqual(result['Work'][0].id, 1, 'GitHub still in Work');
+  assertEqual(result['Work'][1].id, 3, 'Jira still in Work');
+  assertEqual(result['Social'][0].id, 2, 'Twitter still in Social');
+}
+
 // ── Results ─────────────────────────────────────────────────────────────────
 
 console.log(`\n${'─'.repeat(50)}`);
