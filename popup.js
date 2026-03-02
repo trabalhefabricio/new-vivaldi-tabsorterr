@@ -1428,7 +1428,7 @@ fi
       let warnings = 0;
       if (this.mode === 'workspaces') await this._applyWorkspaces();
       else if (this.mode === 'stacks') warnings = (await this._applyStacks()) || 0;
-      else await this._applyWindows();
+      else warnings = (await this._applyWindows()) || 0;
 
       if (warnings > 0) {
         this._status(`✅ Tabs grouped, but ${warnings} group(s) could not be named/colored. You can switch mode and re-apply.`, 'success');
@@ -1536,6 +1536,7 @@ fi
 
   async _applyWindows() {
     let ci = 0;
+    let updateWarnings = 0;
     for (const [cat, tabs] of Object.entries(this.analyzedTabs)) {
       if (!tabs.length) continue;
       if (cat === 'Uncategorized' && !this.includeUncategorized) continue;
@@ -1549,17 +1550,31 @@ fi
       // source window, the source window closes unexpectedly.
       const win = await chrome.windows.create({ focused: false });
 
+      // Try bulk move first; fall back to per-tab move so one stale/pinned
+      // tab doesn't prevent the entire category from being organised.
+      let movedCount = 0;
       try {
         await chrome.tabs.move(validIds, { windowId: win.id, index: -1 });
+        movedCount = validIds.length;
       } catch (e) {
-        console.error('Window mode tab move:', e);
-        // Some tabs may have been closed – skip gracefully
+        console.warn(`Bulk move failed for "${cat}", trying per-tab:`, e);
+        for (const id of validIds) {
+          try { await chrome.tabs.move(id, { windowId: win.id, index: -1 }); movedCount++; } catch {}
+        }
+      }
+
+      // If no tabs were moved, clean up the empty window
+      if (movedCount === 0) {
+        try { await chrome.windows.remove(win.id); } catch {}
+        updateWarnings++;
+        continue;
       }
 
       // Remove the blank tab that chrome.windows.create() opened
       const winTabs = await chrome.tabs.query({ windowId: win.id });
       const blankTab = winTabs.find(t =>
-        !t.url || t.url === '' || t.url === 'chrome://newtab/' || t.url === 'about:blank'
+        !t.url || t.url === '' || t.url === 'chrome://newtab/'
+        || t.url === 'about:blank' || t.url === 'vivaldi://newtab/'
       );
       if (blankTab && winTabs.length > 1) {
         try { await chrome.tabs.remove(blankTab.id); } catch {}
@@ -1575,10 +1590,14 @@ fi
             color: GROUP_COLORS[ci % GROUP_COLORS.length],
             collapsed: false,
           });
-        } catch {}
+        } catch (e) {
+          console.warn(`Failed to group/name tabs for "${cat}":`, e);
+          updateWarnings++;
+        }
       }
       ci++;
     }
+    return updateWarnings;
   }
 }
 
