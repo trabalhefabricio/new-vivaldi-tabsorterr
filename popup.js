@@ -993,8 +993,8 @@ fi
       let url   = t.url || t.pendingUrl || '';
       let title = t.title || '';
 
-      // Strip internal new-tab / blank URLs – they carry no signal
-      if (/^(chrome|vivaldi|edge|about):/.test(url) && !title) {
+      // Strip internal new-tab / blank / extension URLs – they carry no signal
+      if (/^(chrome(-extension)?|vivaldi|edge|about):/.test(url) && !title) {
         url = '';
       }
 
@@ -1086,14 +1086,26 @@ fi
 
     // Build category map
     const result = {};
-    for (const c of this.categories) result[c] = [];
+    const catLower = new Map();
+    for (const c of this.categories) {
+      result[c] = [];
+      catLower.set(c.toLowerCase(), c);
+    }
     result['Uncategorized'] = [];
 
     // Coerce IDs to Number so AI responses with string IDs ("123")
     // still match the numeric tab IDs from chrome.tabs.query().
     const lookup = new Map(valid.map(i => [Number(i.id), i.category]));
     for (const t of origTabs) {
-      const cat = lookup.get(t.id);
+      let cat = lookup.get(t.id);
+      if (cat) {
+        cat = cat.trim();
+        // Case-insensitive fallback: AI may return "work" instead of "Work"
+        if (!result[cat]) {
+          const resolved = catLower.get(cat.toLowerCase());
+          if (resolved) cat = resolved;
+        }
+      }
       (cat && result[cat] ? result[cat] : result['Uncategorized']).push(t);
     }
     return result;
@@ -1347,7 +1359,26 @@ fi
         this._status(`Analyzing ${tabs.length} tabs… (request ${this.reqCount + 1}/${DAILY_LIMIT})`, 'info');
       }
 
+      // Filter out tabs with no useful data – they can't be categorized and
+      // waste AI tokens / pollute context for other tabs.
+      const skippedTabs = [];
+      tabs = tabs.filter(t => {
+        if (!t.title && !t.url) { skippedTabs.push(t); return false; }
+        return true;
+      });
+
+      if (!tabs.length) {
+        this._status('No categorizable tabs found (all tabs are empty or internal).', 'error');
+        $('analyzeBtn').disabled = false;
+        return;
+      }
+
       this.analyzedTabs = await this._callAIChunked(tabs);
+      // Add skipped tabs (no title/url) to Uncategorized so they appear in preview
+      if (skippedTabs.length) {
+        if (!this.analyzedTabs['Uncategorized']) this.analyzedTabs['Uncategorized'] = [];
+        this.analyzedTabs['Uncategorized'].push(...skippedTabs);
+      }
       this._showPreview(this.analyzedTabs);
       $('applyBtn').disabled = false;
       this._refreshUsage();

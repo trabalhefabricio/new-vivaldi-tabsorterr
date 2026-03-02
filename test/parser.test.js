@@ -75,14 +75,26 @@ function parseResponse(text, origTabs, categories) {
 
   // Build category map
   const result = {};
-  for (const c of categories) result[c] = [];
+  const catLower = new Map();
+  for (const c of categories) {
+    result[c] = [];
+    catLower.set(c.toLowerCase(), c);
+  }
   result['Uncategorized'] = [];
 
   // Coerce IDs to Number so AI responses with string IDs ("123")
   // still match the numeric tab IDs from chrome.tabs.query().
   const lookup = new Map(valid.map(i => [Number(i.id), i.category]));
   for (const t of origTabs) {
-    const cat = lookup.get(t.id);
+    let cat = lookup.get(t.id);
+    if (cat) {
+      cat = cat.trim();
+      // Case-insensitive fallback: AI may return "work" instead of "Work"
+      if (!result[cat]) {
+        const resolved = catLower.get(cat.toLowerCase());
+        if (resolved) cat = resolved;
+      }
+    }
     (cat && result[cat] ? result[cat] : result['Uncategorized']).push(t);
   }
   return result;
@@ -338,6 +350,49 @@ console.log('\n  ─ mixed numeric and string IDs');
   assertEqual(result['Dev'].length, 1, 'numeric ID matched');
   assertEqual(result['Email'].length, 1, 'string ID matched');
   assertEqual(result['Media'].length, 1, 'numeric ID matched (tab 3)');
+}
+
+console.log('\n  ─ AI returns categories with different casing');
+{
+  const input = '[{"id":1,"category":"dev"},{"id":2,"category":"EMAIL"},{"id":3,"category":"media"}]';
+  const result = parseResponse(input, sampleTabs, sampleCategories);
+  assertEqual(result['Dev'].length, 1, 'lowercase "dev" matched "Dev"');
+  assertEqual(result['Email'].length, 1, 'uppercase "EMAIL" matched "Email"');
+  assertEqual(result['Media'].length, 1, 'lowercase "media" matched "Media"');
+  assertEqual(result['Uncategorized'].length, 0, 'no uncategorized with case-insensitive match');
+}
+
+console.log('\n  ─ AI returns categories with extra whitespace');
+{
+  const input = '[{"id":1,"category":" Dev "},{"id":2,"category":"Email"},{"id":3,"category":"Media "}]';
+  const result = parseResponse(input, sampleTabs, sampleCategories);
+  assertEqual(result['Dev'].length, 1, 'trimmed " Dev " matched "Dev"');
+  assertEqual(result['Media'].length, 1, 'trimmed "Media " matched "Media"');
+  assertEqual(result['Uncategorized'].length, 0, 'no uncategorized with trimmed match');
+}
+
+console.log('\n  ─ AI returns categories with mixed casing AND whitespace');
+{
+  const input = '[{"id":1,"category":" dev "},{"id":2,"category":" EMAIL "},{"id":3,"category":"MEDIA"}]';
+  const result = parseResponse(input, sampleTabs, sampleCategories);
+  assertEqual(result['Dev'].length, 1, 'trimmed+lowered " dev " matched "Dev"');
+  assertEqual(result['Email'].length, 1, 'trimmed+lowered " EMAIL " matched "Email"');
+  assertEqual(result['Media'].length, 1, 'uppercased "MEDIA" matched "Media"');
+}
+
+console.log('\n  ─ exact category match still takes precedence');
+{
+  // If user defines both "Dev" and "dev" (unlikely but possible),
+  // exact match should take precedence
+  const cats = ['Dev', 'dev', 'Email'];
+  const tabs = [
+    { id: 1, title: 'GitHub', url: 'https://github.com' },
+    { id: 2, title: 'Gmail', url: 'https://mail.google.com' },
+  ];
+  const input = '[{"id":1,"category":"Dev"},{"id":2,"category":"Email"}]';
+  const result = parseResponse(input, tabs, cats);
+  assertEqual(result['Dev'].length, 1, 'exact "Dev" matched "Dev" (not "dev")');
+  assertEqual(result['dev'].length, 0, '"dev" bucket untouched');
 }
 
 // ── Tests: buildPrompt ──────────────────────────────────────────────────────
