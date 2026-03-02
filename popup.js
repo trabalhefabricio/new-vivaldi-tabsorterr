@@ -1014,7 +1014,8 @@ fi
     for (const t of tabs) {
       // Never treat blank / empty URLs as duplicates of each other –
       // hibernated tabs may all have url === '' and would be mass-closed.
-      if (!t.url || t.url === 'about:blank') { unique.push(t); continue; }
+      const trimmed = (t.url || '').trim();
+      if (!trimmed || trimmed === 'about:blank') { unique.push(t); continue; }
       if (seen.has(t.url)) { dupeIds.push(t.id); }
       else { seen.add(t.url); unique.push(t); }
     }
