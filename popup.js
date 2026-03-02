@@ -66,6 +66,7 @@ class TabSorter {
 
     this.analyzedTabs  = null;
     this.allTabs       = [];
+    this.isApplying    = false;
 
     this.lastReqTime   = 0;
     this.reqCount      = 0;
@@ -263,7 +264,7 @@ class TabSorter {
         if (wsScope) wsScope.style.display = this.mode === 'workspaces' ? '' : 'none';
         this._updateWorkspaceSetup();
         this._save();
-        if (this.analyzedTabs) {
+        if (this.analyzedTabs && !this.isApplying) {
           $('applyBtn').disabled = false;
           this._status('Mode changed – click Apply to re-apply with existing analysis.', 'info');
         }
@@ -1417,6 +1418,7 @@ fi
 
   async _apply() {
     if (!this.analyzedTabs) { this._status('Run analysis first.', 'error'); return; }
+    this.isApplying = true;
     try {
       $('applyBtn').disabled = true;
       this._status('Applying…', 'info');
@@ -1439,6 +1441,8 @@ fi
       console.error('apply:', e);
       this._status(sanitizeErrorMessage(e.message), 'error');
       $('applyBtn').disabled = false;
+    } finally {
+      this.isApplying = false;
     }
   }
 
@@ -1521,6 +1525,7 @@ fi
         ci++;
       } catch (e) {
         console.warn(`Failed to create tab group for "${cat}":`, e);
+        updateWarnings++;
       }
     }
     await chrome.windows.update(targetWin, { focused: true });
@@ -1535,11 +1540,8 @@ fi
       if (!tabs.length) continue;
       if (cat === 'Uncategorized' && !this.includeUncategorized) continue;
 
-      // Verify tabs still exist before creating a window
-      const validIds = [];
-      for (const t of tabs) {
-        try { await chrome.tabs.get(t.id); validIds.push(t.id); } catch {}
-      }
+      // Tab existence already verified by _refreshAnalyzedTabs()
+      const validIds = tabs.map(t => t.id);
       if (!validIds.length) continue;
 
       // Create a new window, then move all tabs into it.
