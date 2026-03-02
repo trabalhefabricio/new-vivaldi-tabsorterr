@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com">
+  <title>Vivaldi AI Tab Sorter</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      width: 460px;
+      min-height: 480px;
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: #fff;
+      padding: 16px;
+    }
+
+    .card {
+      background: rgba(255, 255, 255, 0.1);
+      backdrop-filter: blur(12px);
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+    }
+
+    h1 {
+      font-size: 22px;
+      text-align: center;
+      font-weight: 700;
+      margin-bottom: 18px;
+      letter-spacing: -0.3px;
+    }
+
+    .field {
+      margin-bottom: 16px;
+    }
+
+    .field-label {
+      display: block;
+      margin-bottom: 6px;
+      font-weight: 600;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .field-label small {
+      font-weight: 400;
+      font-size: 10px;
+      text-transform: none;
+      letter-spacing: 0;
+      color: rgba(255, 255, 255, 0.55);
+    }
+
+    .hint {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.65);
+      margin-top: 4px;
+    }
+
+    .hint a {
+      color: rgba(255, 255, 255, 0.85);
+    }
+
+    input[type="text"],
+    input[type="password"],
+    textarea,
+    select {
+      width: 100%;
+      padding: 9px 11px;
+      border: 1.5px solid rgba(255, 255, 255, 0.2);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.12);
+      color: #fff;
+      font-size: 13px;
+      font-family: inherit;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+      color: rgba(255, 255, 255, 0.5);
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+      outline: none;
+      border-color: rgba(255, 255, 255, 0.5);
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .select-wrap {
+      position: relative;
+      display: block;
+    }
+
+    .select-wrap::after {
+      content: '';
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid white;
+      pointer-events: none;
+    }
+
+    select {
+      cursor: pointer;
+      appearance: none;
+      padding-right: 30px;
+    }
+
+    select option {
+      background: #4a4a6a;
+      color: #fff;
+    }
+
+    textarea {
+      resize: vertical;
+      min-height: 52px;
+    }
+
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .toggle-row input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      cursor: pointer;
+      accent-color: #f5576c;
+    }
+
+    .toggle-row label {
+      cursor: pointer;
+      font-size: 13px;
+    }
+
+    .mode-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 6px;
+    }
+
+    .mode-option {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 8px 10px;
+      border: 1.5px solid rgba(255, 255, 255, 0.15);
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    .mode-option:hover {
+      background: rgba(255, 255, 255, 0.06);
+    }
+
+    .mode-option input[type="radio"] {
+      margin-top: 3px;
+      accent-color: #f5576c;
+    }
+
+    .mode-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .mode-title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    .mode-desc {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.55);
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+
+    .btn:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .btn-analyze {
+      background: #fff;
+      color: #764ba2;
+    }
+
+    .btn-apply {
+      background: linear-gradient(135deg, #f5576c, #ff6b6b);
+      color: #fff;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .actions .btn {
+      flex: 1;
+    }
+
+    .btn-sm {
+      padding: 5px 10px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    .btn-sm:hover {
+      background: rgba(255, 255, 255, 0.18);
+    }
+
+    .model-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .model-row select {
+      flex: 1;
+    }
+
+    .key-row {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+
+    .key-row input {
+      flex: 1;
+    }
+
+    .toggle-vis {
+      padding: 5px 8px;
+      border: 1px solid rgba(255, 255, 255, 0.3);
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.1);
+      color: #fff;
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+    }
+
+    .key-status {
+      display: none;
+      margin-top: 4px;
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .key-status.visible {
+      display: block;
+    }
+
+    .key-status.saved {
+      color: #48bb78;
+    }
+
+    #preview {
+      display: none;
+      margin-top: 12px;
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    #preview.visible {
+      display: block;
+    }
+
+    .preview-heading {
+      font-weight: 600;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+
+    .preview-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 13px;
+    }
+
+    .preview-cat {
+      font-weight: 600;
+    }
+
+    .preview-count {
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .preview-total {
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid rgba(255, 255, 255, 0.15);
+      font-weight: 600;
+      font-size: 13px;
+    }
+
+    #status {
+      display: none;
+      margin-top: 12px;
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      text-align: center;
+    }
+
+    #status.visible {
+      display: block;
+    }
+
+    #status.success {
+      background: rgba(72, 187, 120, 0.2);
+      border: 1px solid rgba(72, 187, 120, 0.4);
+    }
+
+    #status.error {
+      background: rgba(245, 87, 108, 0.2);
+      border: 1px solid rgba(245, 87, 108, 0.4);
+    }
+
+    #status.info {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .usage-bar {
+      display: none;
+      margin-top: 10px;
+      padding: 8px 10px;
+      background: rgba(0, 0, 0, 0.12);
+      border-radius: 6px;
+      font-size: 12px;
+    }
+
+    .usage-bar.visible {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .reset-link {
+      background: none;
+      border: none;
+      color: rgba(255, 255, 255, 0.6);
+      cursor: pointer;
+      font-size: 11px;
+      text-decoration: underline;
+    }
+
+    .bridge-indicator {
+      padding: 6px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-bottom: 6px;
+    }
+
+    .bridge-indicator.success {
+      background: rgba(72, 187, 120, 0.2);
+      border: 1px solid rgba(72, 187, 120, 0.3);
+    }
+
+    .bridge-indicator.warn {
+      background: rgba(237, 137, 54, 0.2);
+      border: 1px solid rgba(237, 137, 54, 0.3);
+    }
+
+    .bridge-indicator.info {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.15);
+    }
+
+    .settings-row {
+      display: flex;
+      gap: 6px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>🚀 Vivaldi AI Tab Sorter</h1>
+
+    <!-- Provider Selection -->
+    <div class="field">
+      <label class="field-label" for="providerSelect">AI Provider</label>
+      <div class="select-wrap">
+        <select id="providerSelect">
+          <option value="gemini">Google Gemini (Free Tier)</option>
+          <option value="openai">OpenAI (GPT)</option>
+          <option value="claude">Anthropic Claude</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Gemini API Key -->
+    <div id="geminiKeySection" class="field">
+      <label class="field-label" for="apiKey">Gemini API Key</label>
+      <div class="key-row">
+        <input type="password" id="apiKey" placeholder="AIza…">
+        <button class="toggle-vis" data-target="apiKey">👁</button>
+      </div>
+      <div id="geminiKeyStatus" class="key-status"></div>
+      <div class="hint">Get one free at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener">aistudio.google.com</a></div>
+    </div>
+
+    <!-- OpenAI API Key -->
+    <div id="openaiKeySection" class="field" style="display:none;">
+      <label class="field-label" for="openaiKey">OpenAI API Key</label>
+      <div class="key-row">
+        <input type="password" id="openaiKey" placeholder="sk-…">
+        <button class="toggle-vis" data-target="openaiKey">👁</button>
+      </div>
+      <div id="openaiKeyStatus" class="key-status"></div>
+      <div class="hint">Get one at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com</a></div>
+    </div>
+
+    <!-- Claude API Key -->
+    <div id="claudeKeySection" class="field" style="display:none;">
+      <label class="field-label" for="claudeKey">Claude API Key</label>
+      <div class="key-row">
+        <input type="password" id="claudeKey" placeholder="sk-ant-…">
+        <button class="toggle-vis" data-target="claudeKey">👁</button>
+      </div>
+      <div id="claudeKeyStatus" class="key-status"></div>
+      <div class="hint">Get one at <a href="https://console.anthropic.com/" target="_blank" rel="noopener">console.anthropic.com</a></div>
+    </div>
+
+    <!-- Model Selection (Gemini) -->
+    <div id="modelSection" class="field">
+      <label class="field-label" for="modelSelect">Model <small>(Gemini)</small></label>
+      <div class="model-row">
+        <div class="select-wrap" style="flex:1;">
+          <select id="modelSelect">
+            <option value="gemini-2.0-flash">Gemini 2.0 Flash (Fast)</option>
+            <option value="gemini-1.5-pro">Gemini 1.5 Pro (Advanced)</option>
+            <option value="gemini-1.5-flash">Gemini 1.5 Flash</option>
+          </select>
+        </div>
+        <button id="refreshModelsBtn" class="btn-sm">🔄</button>
+      </div>
+    </div>
+
+    <!-- OpenAI Model Selection -->
+    <div id="openaiModelSection" class="field" style="display:none;">
+      <label class="field-label" for="openaiModelSelect">Model</label>
+      <div class="select-wrap">
+      <select id="openaiModelSelect">
+        <option value="gpt-4o-mini">GPT-4o Mini (Recommended)</option>
+        <option value="gpt-4o">GPT-4o</option>
+        <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+        <option value="gpt-4.1-nano">GPT-4.1 Nano (Fast)</option>
+      </select>
+      </div>
+    </div>
+
+    <!-- Claude Model Selection -->
+    <div id="claudeModelSection" class="field" style="display:none;">
+      <label class="field-label" for="claudeModelSelect">Model</label>
+      <div class="select-wrap">
+      <select id="claudeModelSelect">
+        <option value="claude-sonnet-4-20250514">Claude Sonnet 4 (Recommended)</option>
+        <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+        <option value="claude-3-5-haiku-20241022">Claude 3.5 Haiku (Fast)</option>
+      </select>
+      </div>
+    </div>
+
+    <!-- Categories -->
+    <div class="field">
+      <label class="field-label" for="categories">Categories</label>
+      <input type="text" id="categories" placeholder="Work, Shopping, Research, Social, Entertainment">
+      <div class="hint">Comma-separated list of categories for tab organization</div>
+    </div>
+
+    <!-- Logic Rules -->
+    <div class="field">
+      <label class="field-label" for="logicRules">Custom Rules (optional)</label>
+      <textarea id="logicRules" rows="2" placeholder="e.g., Put YouTube in Entertainment unless title mentions 'Tutorial', then put in Work"></textarea>
+    </div>
+
+    <!-- Duplicate Removal -->
+    <div class="field">
+      <div class="toggle-row">
+        <input type="checkbox" id="removeDuplicates">
+        <label for="removeDuplicates">Remove duplicate tabs before sorting</label>
+      </div>
+      <div class="toggle-row">
+        <input type="checkbox" id="includeUncategorized">
+        <label for="includeUncategorized">Create group for uncategorized tabs</label>
+      </div>
+    </div>
+
+    <!-- Organization Mode -->
+    <div class="field">
+      <label class="field-label">Organization Mode</label>
+      <div class="mode-group">
+        <label class="mode-option">
+          <input type="radio" name="mode" id="modeWorkspaces" value="workspaces">
+          <div class="mode-info">
+            <div class="mode-title">🏆 Workspaces</div>
+            <div class="mode-desc">Create Vivaldi Workspaces per category (Vivaldi only · auto-detects API, bridge as fallback)</div>
+          </div>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" id="modeStacks" value="stacks" checked>
+          <div class="mode-info">
+            <div class="mode-title">📚 Tab Stacks</div>
+            <div class="mode-desc">Vivaldi tab stacks via chrome.tabGroups API</div>
+          </div>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="mode" id="modeWindows" value="windows">
+          <div class="mode-info">
+            <div class="mode-title">🪟 Separate Windows</div>
+            <div class="mode-desc">One window per category</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Stack Scope (shown only in stack mode) -->
+    <div class="field" id="stackOptionsSection" style="display:none;">
+      <label class="field-label">Stack Scope</label>
+      <div class="mode-group">
+        <label class="mode-option">
+          <input type="radio" name="stackScope" id="stackCurrentWindow" value="current" checked>
+          <div class="mode-info">
+            <div class="mode-title">Current Window</div>
+            <div class="mode-desc">Only organize tabs in the active window</div>
+          </div>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="stackScope" id="stackAllWindows" value="all">
+          <div class="mode-info">
+            <div class="mode-title">All Windows</div>
+            <div class="mode-desc">Consolidate all tabs into one window</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Workspace Scope (shown only in workspace mode) -->
+    <div class="field" id="workspaceScopeSection" style="display:none;">
+      <label class="field-label">Workspace Scope</label>
+      <div class="mode-group">
+        <label class="mode-option">
+          <input type="radio" name="workspaceScope" id="workspaceScopeCurrent" value="current">
+          <div class="mode-info">
+            <div class="mode-title">Current Window</div>
+            <div class="mode-desc">Only organize tabs in the active window</div>
+          </div>
+        </label>
+        <label class="mode-option">
+          <input type="radio" name="workspaceScope" id="workspaceScopeAll" value="all" checked>
+          <div class="mode-info">
+            <div class="mode-title">All Windows</div>
+            <div class="mode-desc">Organize tabs from all windows</div>
+          </div>
+        </label>
+      </div>
+    </div>
+
+    <!-- Workspace Setup (shown only in workspace mode) -->
+    <div class="field" id="workspaceSetupSection" style="display:none;">
+      <label class="field-label">Workspace Status</label>
+      <div id="bridgeStatus" class="bridge-indicator info">Checking…</div>
+      <button id="checkBridgeBtn" class="btn-sm">🔍 Check Connection</button>
+      <div id="bridgeSetupArea" style="display:none;">
+        <button id="downloadSetupBtn" class="btn-sm">⬇️ Download Install Script</button>
+        <button id="copyCommandsBtn" class="btn-sm" style="margin-top:4px;">📋 Copy Install Commands</button>
+        <div class="hint" style="margin-top:6px;">
+          Download a script, copy commands to run manually, or follow <a href="INSTALL.md" target="_blank" rel="noopener">step-by-step instructions</a>.
+        </div>
+      </div>
+      <div class="toggle-row" style="margin-top:8px;">
+        <input type="checkbox" id="reassignExisting" checked>
+        <label for="reassignExisting">Reassign tabs already in a workspace</label>
+      </div>
+    </div>
+
+    <!-- Actions -->
+    <div class="field actions">
+      <button id="analyzeBtn" class="btn btn-analyze">🔍 Analyze</button>
+      <button id="applyBtn" class="btn btn-apply" disabled>✨ Apply</button>
+    </div>
+
+    <!-- Usage Info -->
+    <div id="usageInfo" class="usage-bar">
+      <div id="usageText"></div>
+      <button id="resetCounter" class="reset-link">Reset Counter</button>
+    </div>
+
+    <!-- Preview -->
+    <div id="preview"></div>
+
+    <!-- Settings -->
+    <div class="field" style="margin-top:4px;">
+      <div class="toggle-row">
+        <input type="checkbox" id="autoClose" checked>
+        <label for="autoClose">Auto-close popup after applying</label>
+      </div>
+    </div>
+
+    <!-- Export / Import -->
+    <div class="settings-row">
+      <button id="exportBtn" class="btn-sm">💾 Export Settings</button>
+      <button id="importBtn" class="btn-sm">📂 Import Settings</button>
+      <input type="file" id="importFile" accept=".json" style="display:none;">
+    </div>
+
+    <!-- Status -->
+    <div id="status"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
