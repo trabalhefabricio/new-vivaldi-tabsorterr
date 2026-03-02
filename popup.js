@@ -1403,14 +1403,16 @@ fi
     if (!this.analyzedTabs) return;
     const allTabs = await chrome.tabs.query({});
     const tabMap = new Map(allTabs.map(t => [t.id, t]));
+    const refreshed = {};
     for (const cat of Object.keys(this.analyzedTabs)) {
-      this.analyzedTabs[cat] = this.analyzedTabs[cat]
+      refreshed[cat] = this.analyzedTabs[cat]
         .filter(t => tabMap.has(t.id))
         .map(t => {
           const fresh = tabMap.get(t.id);
           return { ...t, windowId: fresh.windowId, index: fresh.index };
         });
     }
+    this.analyzedTabs = refreshed;
   }
 
   async _apply() {
@@ -1421,11 +1423,16 @@ fi
 
       await this._refreshAnalyzedTabs();
 
+      let warnings = 0;
       if (this.mode === 'workspaces') await this._applyWorkspaces();
-      else if (this.mode === 'stacks') await this._applyStacks();
+      else if (this.mode === 'stacks') warnings = (await this._applyStacks()) || 0;
       else await this._applyWindows();
 
-      this._status('✅ Tabs sorted! You can switch mode and re-apply.', 'success');
+      if (warnings > 0) {
+        this._status(`✅ Tabs grouped, but ${warnings} group(s) could not be named/colored. You can switch mode and re-apply.`, 'success');
+      } else {
+        this._status('✅ Tabs sorted! You can switch mode and re-apply.', 'success');
+      }
       $('applyBtn').disabled = false;
       if (this.autoClose) setTimeout(() => window.close(), 2000);
     } catch (e) {
@@ -1517,9 +1524,7 @@ fi
       }
     }
     await chrome.windows.update(targetWin, { focused: true });
-    if (updateWarnings > 0) {
-      console.warn(`${updateWarnings} group(s) created without title/color – tabGroups.update may not be fully supported.`);
-    }
+    return updateWarnings;
   }
 
   // ── Window Mode ──────────────────────────────────────────────────────────
